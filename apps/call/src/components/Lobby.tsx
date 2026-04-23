@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocalMedia } from '../hooks/useLocalMedia'
+import type { LocalMedia } from '../hooks/useLocalMedia'
 import { SIGNALING_URL } from '../constants'
+import { showModal } from '../lib/notifications'
+import { classifyError } from '../lib/errorClassifier'
 
 const STORAGE_KEY = 'videocall_participant'
 
@@ -10,11 +12,12 @@ interface StoredParticipant {
 }
 
 interface Props {
-  onJoin: (stream: MediaStream | null, displayName: string, participantKey: string) => void
+  localMedia: LocalMedia
+  onJoin: (displayName: string, participantKey: string) => void
 }
 
-export default function Lobby({ onJoin }: Props) {
-  const { stream, audioEnabled, toggleAudio, videoEnabled, toggleVideo, permissionDenied, cameras, mics, selectCamera, selectMic } = useLocalMedia()
+export default function Lobby({ localMedia, onJoin }: Props) {
+  const { stream, audioEnabled, toggleAudio, videoEnabled, toggleVideo, permissionDenied, cameras, mics, selectCamera, selectMic } = localMedia
   const videoRef = useRef<HTMLVideoElement>(null)
 
   const stored = (() => {
@@ -32,17 +35,24 @@ export default function Lobby({ onJoin }: Props) {
     const resolvedName = name.trim() || 'Guest'
     setJoining(true)
     try {
-      // Use the stored key only if the name hasn't changed — different name = new user
       const storedKey = stored?.name === resolvedName ? stored.key : undefined
       const res = await fetch(`${SIGNALING_URL}/participants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: resolvedName, key: storedKey }),
       })
+      if (!res.ok) {
+        const { message, autoDismissMs } = classifyError({ status: res.status })
+        showModal({ title: 'Failed to join', message, autoDismissMs })
+        setJoining(false)
+        return
+      }
       const { participantKey } = await res.json() as { participantKey: string }
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: resolvedName, key: participantKey }))
-      onJoin(stream, resolvedName, participantKey)
+      onJoin(resolvedName, participantKey)
     } catch {
+      const { message, autoDismissMs } = classifyError({})
+      showModal({ title: 'Failed to join', message, autoDismissMs })
       setJoining(false)
     }
   }

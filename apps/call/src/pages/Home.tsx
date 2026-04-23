@@ -1,15 +1,27 @@
 import { useState } from 'react'
 import { SIGNALING_URL } from '../constants'
+import { showModal } from '../lib/notifications'
+import { classifyError } from '../lib/errorClassifier'
 
 export default function Home() {
   const [joinUrl, setJoinUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   async function handleNewMeeting() {
-    const res = await fetch(`${SIGNALING_URL}/rooms`, { method: 'POST' })
-    const data = await res.json()
-    setJoinUrl(`${window.location.origin}/room/${data.roomId}`)
-    setCopied(false)
+    try {
+      const res = await fetch(`${SIGNALING_URL}/rooms`, { method: 'POST' })
+      if (!res.ok) {
+        const { message, autoDismissMs } = classifyError({ status: res.status })
+        showModal({ title: 'Failed to create room', message, autoDismissMs })
+        return
+      }
+      const data = await res.json()
+      setJoinUrl(`${window.location.origin}/room/${data.roomId}`)
+      setCopied(false)
+    } catch {
+      const { message, autoDismissMs } = classifyError({})
+      showModal({ title: 'Failed to create room', message, autoDismissMs })
+    }
   }
 
   async function handleCopy() {
