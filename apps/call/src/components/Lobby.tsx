@@ -3,17 +3,27 @@ import type { LocalMedia } from '../hooks/useLocalMedia'
 import { SIGNALING_URL } from '../constants'
 import { showModal } from '../lib/notifications'
 import { classifyError } from '../lib/errorClassifier'
+import { VideoCallIcon, MicIcon, MicOffIcon, VideoIcon, VideoOffIcon } from './Icons'
 
 const STORAGE_KEY = 'videocall_participant'
 
-interface StoredParticipant {
-  name: string
-  key: string
-}
+interface StoredParticipant { name: string; key: string }
 
 interface Props {
   localMedia: LocalMedia
   onJoin: (displayName: string, participantKey: string) => void
+}
+
+const AVATAR_COLORS = ['#6c6fff', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
+
+function avatarColor(name: string): string {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
+}
+
+function initials(name: string): string {
+  return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
 }
 
 export default function Lobby({ localMedia, onJoin }: Props) {
@@ -57,54 +67,92 @@ export default function Lobby({ localMedia, onJoin }: Props) {
     }
   }
 
+  const showAvatar = permissionDenied || !videoEnabled
+  const color = avatarColor(name || 'Guest')
+
   return (
-    <div>
-      <h2>Ready to join?</h2>
+    <div className="lobby-page">
+      <div className="lobby-card">
+        <div className="lobby-header">
+          <VideoCallIcon size={18} />
+          <span className="lobby-header__title">Ready to join?</span>
+        </div>
 
-      <div>
-        <input
-          type="text"
-          placeholder="Your name"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          style={{ marginBottom: 12, padding: '6px 10px', fontSize: 14, borderRadius: 4, border: '1px solid #ccc', width: 240 }}
-        />
+        <div className="lobby-preview">
+          {showAvatar ? (
+            <div className="lobby-avatar">
+              <div className="lobby-avatar__circle" style={{ background: color }}>
+                {initials(name || 'Guest')}
+              </div>
+              <span className="lobby-avatar__label">
+                {permissionDenied ? 'Camera access denied' : 'Camera is off'}
+              </span>
+            </div>
+          ) : (
+            <video ref={videoRef} autoPlay muted playsInline />
+          )}
+
+          {!permissionDenied && (
+            <div className="lobby-preview__overlay">
+              <button
+                className={`btn-icon ${!audioEnabled ? 'btn-icon--muted' : ''}`}
+                onClick={toggleAudio}
+                title={audioEnabled ? 'Mute mic' : 'Unmute mic'}
+              >
+                {audioEnabled ? <MicIcon /> : <MicOffIcon />}
+              </button>
+              <button
+                className={`btn-icon ${!videoEnabled ? 'btn-icon--muted' : ''}`}
+                onClick={toggleVideo}
+                title={videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+              >
+                {videoEnabled ? <VideoIcon /> : <VideoOffIcon />}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="lobby-form">
+          <div>
+            <label className="field-label">Your name</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Enter your name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !joining && handleJoin()}
+            />
+          </div>
+
+          {!permissionDenied && (cameras.length > 0 || mics.length > 0) && (
+            <div className="lobby-devices">
+              {cameras.length > 0 && (
+                <div>
+                  <label className="field-label">Camera</label>
+                  <select className="select" onChange={e => selectCamera(e.target.value)}>
+                    {cameras.map(c => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
+                  </select>
+                </div>
+              )}
+              {mics.length > 0 && (
+                <div>
+                  <label className="field-label">Microphone</label>
+                  <select className="select" onChange={e => selectMic(e.target.value)}>
+                    {mics.map(m => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button className="btn btn-primary" onClick={handleJoin} disabled={joining}>
+            {joining
+              ? <><span className="spinner spinner--sm" style={{ borderTopColor: '#fff' }} /> Joining…</>
+              : 'Join now'}
+          </button>
+        </div>
       </div>
-
-      {permissionDenied ? (
-        <p>Camera and microphone are blocked — you can still join and listen.</p>
-      ) : (
-        <video ref={videoRef} autoPlay muted playsInline style={{ transform: 'scaleX(-1)', width: 320, height: 240, background: '#000' }} />
-      )}
-
-      {!permissionDenied && (
-        <div>
-          <button onClick={toggleAudio}>{audioEnabled ? 'Mute' : 'Unmute'}</button>
-          <button onClick={toggleVideo}>{videoEnabled ? 'Camera off' : 'Camera on'}</button>
-        </div>
-      )}
-
-      {cameras.length > 0 && (
-        <div>
-          <label>Camera: </label>
-          <select onChange={e => selectCamera(e.target.value)}>
-            {cameras.map(c => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
-          </select>
-        </div>
-      )}
-
-      {mics.length > 0 && (
-        <div>
-          <label>Microphone: </label>
-          <select onChange={e => selectMic(e.target.value)}>
-            {mics.map(m => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
-          </select>
-        </div>
-      )}
-
-      <button onClick={handleJoin} disabled={joining}>
-        {joining ? 'Joining…' : 'Join now'}
-      </button>
     </div>
   )
 }
