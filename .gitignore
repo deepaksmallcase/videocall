@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Non-pnpm lockfiles (this repo uses pnpm)
+package-lock.json
+yarn.lock
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS
+.DS_Store
+.vscode/settings.json
+.idea/
+*.sw?
+Thumbs.db
+
+# Vite / local overrides
+*.local
+
+# Plans / internal docs
+plans/
+
+# Claude-specific
+.claude/

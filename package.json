@@ -1,0 +1,16 @@
+{
+  "name": "videocall-app",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "concurrently -n server,call -c blue,green \"pnpm --filter @videocall/server dev\" \"pnpm --filter @videocall/call dev\"",
+    "build": "pnpm --filter @videocall/call build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}
