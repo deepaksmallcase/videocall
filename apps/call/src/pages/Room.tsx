@@ -6,6 +6,7 @@ import { showModal } from '../lib/notifications'
 import { classifyError } from '../lib/errorClassifier'
 import Lobby from '../components/Lobby'
 import ActiveCall from './ActiveCall'
+import { AlertCircleIcon } from '../components/Icons'
 
 type Phase = 'loading' | 'not-found' | 'lobby' | 'call'
 
@@ -37,8 +38,23 @@ export default function Room() {
       })
   }, [roomId])
 
-  if (phase === 'loading') return <p>Loading…</p>
-  if (phase === 'not-found') return null
+  if (phase === 'loading') return (
+    <div className="screen-center">
+      <div className="spinner" />
+      <p className="text-secondary">Connecting…</p>
+    </div>
+  )
+
+  if (phase === 'not-found') return (
+    <div className="screen-center">
+      <div className="error-card">
+        <div className="error-card__icon"><AlertCircleIcon /></div>
+        <h2>Room not found</h2>
+        <p>This room doesn't exist or may have ended.</p>
+        <a href="/" className="btn btn-primary" style={{ marginTop: 4 }}>Back to home</a>
+      </div>
+    </div>
+  )
   if (phase === 'lobby') return (
     <Lobby
       localMedia={localMedia}

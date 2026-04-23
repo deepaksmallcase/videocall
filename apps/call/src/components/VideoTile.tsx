@@ -12,12 +12,26 @@ interface Props {
   onRetry?: () => void
   mediaError?: MediaError | null
   onDismissMediaError?: () => void
+  isSelf?: boolean
+}
+
+const AVATAR_COLORS = ['#6c6fff', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
+
+function avatarColor(name: string): string {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
+}
+
+function initials(name: string): string {
+  return name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?'
 }
 
 export default function VideoTile({
   stream, muted = false, label, mirrored = false,
   connectionState, isOfferer, onRetry,
   mediaError, onDismissMediaError,
+  isSelf = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
@@ -25,23 +39,30 @@ export default function VideoTile({
     if (videoRef.current) videoRef.current.srcObject = stream
   }, [stream])
 
+  const name = label ?? ''
+
   return (
-    <div style={{ position: 'relative', background: '#1a1a1a', borderRadius: 8, overflow: 'hidden' }}>
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={muted}
-        style={{ width: '100%', height: '100%', objectFit: 'cover', transform: mirrored ? 'scaleX(-1)' : 'none' }}
-      />
+    <div className={`video-tile${isSelf ? ' video-tile--self' : ''}`}>
+      {!stream ? (
+        <div className="video-tile__avatar">
+          <div className="video-tile__avatar-circle" style={{ background: avatarColor(name) }}>
+            {initials(name)}
+          </div>
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={muted}
+          style={{ transform: mirrored ? 'scaleX(-1)' : 'none' }}
+        />
+      )}
 
       {label && (
-        <span style={{
-          position: 'absolute', bottom: 8, left: 8, color: '#fff', fontSize: 12,
-          background: 'rgba(0,0,0,0.5)', padding: '2px 6px', borderRadius: 4,
-        }}>
-          {label}
-        </span>
+        <div className="video-tile__label-bar">
+          <span className="video-tile__label">{label}</span>
+        </div>
       )}
 
       {/* Connection state overlay */}
