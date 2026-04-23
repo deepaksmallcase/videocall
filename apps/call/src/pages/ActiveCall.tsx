@@ -1,38 +1,61 @@
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useRoom } from '../hooks/useRoom'
+import type { LocalMedia } from '../hooks/useLocalMedia'
 import VideoTile from '../components/VideoTile'
+import { showToast } from '../lib/notifications'
 
 interface Props {
-  localStream: MediaStream | null
+  localMedia: LocalMedia
   displayName: string
   participantKey: string
 }
 
-export default function ActiveCall({ localStream, displayName, participantKey }: Props) {
+export default function ActiveCall({ localMedia, displayName, participantKey }: Props) {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
-  const { peers } = useRoom({ roomId: roomId!, localStream, displayName, participantKey })
+  const {
+    stream: localStream, audioEnabled, toggleAudio, videoEnabled, toggleVideo,
+    cameras, mics, selectCamera, selectMic,
+    switching, switchingType, mediaError, dismissMediaError,
+  } = localMedia
+  const { peers, retryPeer } = useRoom({ roomId: roomId!, localStream, displayName, participantKey })
 
-  const [audioEnabled, setAudioEnabled] = useState(() =>
-    localStream?.getAudioTracks()[0]?.enabled ?? false
-  )
-  const [videoEnabled, setVideoEnabled] = useState(() =>
-    localStream?.getVideoTracks()[0]?.enabled ?? false
-  )
+  // Manage switching toast lifecycle
+  const dismissSwitchToastRef = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    if (switching) {
+      const label = switchingType === 'camera' ? 'Switching camera…' : 'Switching microphone…'
+      const { dismiss } = showToast({ message: label })
+      dismissSwitchToastRef.current = dismiss
+    } else {
+      dismissSwitchToastRef.current?.()
+      dismissSwitchToastRef.current = null
+    }
+  }, [switching, switchingType])
 
-  function toggleAudio() {
-    localStream?.getAudioTracks().forEach(t => { t.enabled = !t.enabled })
-    setAudioEnabled(e => !e)
+  async function handleCameraSelect(deviceId: string) {
+    try {
+      await selectCamera(deviceId)
+    } catch {
+      dismissSwitchToastRef.current?.()
+      dismissSwitchToastRef.current = null
+      showToast({ message: 'Failed to switch camera. Please try again.' })
+    }
   }
 
-  function toggleVideo() {
-    localStream?.getVideoTracks().forEach(t => { t.enabled = !t.enabled })
-    setVideoEnabled(e => !e)
+  async function handleMicSelect(deviceId: string) {
+    try {
+      await selectMic(deviceId)
+    } catch {
+      dismissSwitchToastRef.current?.()
+      dismissSwitchToastRef.current = null
+      showToast({ message: 'Failed to switch microphone. Please try again.' })
+    }
   }
 
   function leaveCall() {
-    localStream?.getTracks().forEach(t => t.stop())
+    localStream?.getTracks().forEach(t => { t.onended = null; t.stop() })
     navigate('/')
   }
 
@@ -42,9 +65,23 @@ export default function ActiveCall({ localStream, displayName, participantKey }:
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#111', color: '#fff' }}>
       {/* Video grid */}
       <div style={{ flex: 1, display: 'grid', gap: 8, padding: 16, gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(peerList.length + 1))}, 1fr)` }}>
-        <VideoTile stream={localStream} muted label={`${displayName} (You)`} mirrored />
-        {peerList.map(([peerId, { stream, displayName: peerName }]) => (
-          <VideoTile key={peerId} stream={stream} label={peerName} />
+        <VideoTile
+          stream={localStream}
+          muted
+          label={`${displayName} (You)`}
+          mirrored
+          mediaError={mediaError}
+          onDismissMediaError={dismissMediaError}
+        />
+        {peerList.map(([peerId, { stream, displayName: peerName, connectionState, isOfferer }]) => (
+          <VideoTile
+            key={peerId}
+            stream={stream}
+            label={peerName}
+            connectionState={connectionState}
+            isOfferer={isOfferer}
+            onRetry={() => retryPeer(peerId)}
+          />
         ))}
       </div>
 
@@ -62,13 +99,34 @@ export default function ActiveCall({ localStream, displayName, participantKey }:
       </div>
 
       {/* Control bar */}
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', padding: 16, background: '#1a1a1a' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center', alignItems: 'center', padding: 16, background: '#1a1a1a' }}>
         <button onClick={toggleAudio} style={btnStyle(!audioEnabled)}>
           {audioEnabled ? 'Mute' : 'Unmute'}
         </button>
         <button onClick={toggleVideo} style={btnStyle(!videoEnabled)}>
           {videoEnabled ? 'Camera off' : 'Camera on'}
         </button>
+
+        {cameras.length > 1 && (
+          <select
+            onChange={e => handleCameraSelect(e.target.value)}
+            disabled={switching}
+            style={selectStyle}
+          >
+            {cameras.map(c => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
+          </select>
+        )}
+
+        {mics.length > 1 && (
+          <select
+            onChange={e => handleMicSelect(e.target.value)}
+            disabled={switching}
+            style={selectStyle}
+          >
+            {mics.map(m => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+          </select>
+        )}
+
         <button onClick={leaveCall} style={{ ...btnStyle(false), background: '#c0392b' }}>
           Leave
         </button>
@@ -87,4 +145,14 @@ function btnStyle(active: boolean): React.CSSProperties {
     color: '#fff',
     fontSize: 14,
   }
+}
+
+const selectStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: 6,
+  border: 'none',
+  background: '#333',
+  color: '#fff',
+  fontSize: 13,
+  cursor: 'pointer',
 }

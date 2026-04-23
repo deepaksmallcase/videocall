@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
 import Room from './pages/Room'
+import Modal from './components/Modal'
+import ToastContainer from './components/ToastContainer'
 
 export default function App() {
   return (
@@ -9,6 +11,8 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/room/:roomId" element={<Room />} />
       </Routes>
+      <Modal />
+      <ToastContainer />
     </BrowserRouter>
   )
 }

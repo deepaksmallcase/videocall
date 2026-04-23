@@ -5,6 +5,10 @@ export interface MediaDevice {
   label: string
 }
 
+export interface MediaError {
+  type: 'camera' | 'microphone'
+}
+
 export interface LocalMedia {
   stream: MediaStream | null
   audioEnabled: boolean
@@ -16,35 +20,54 @@ export interface LocalMedia {
   mics: MediaDevice[]
   selectCamera: (deviceId: string) => Promise<void>
   selectMic: (deviceId: string) => Promise<void>
+  switching: boolean
+  switchingType: 'camera' | 'microphone' | null
+  mediaError: MediaError | null
+  dismissMediaError: () => void
 }
 
 export function useLocalMedia(): LocalMedia {
   const [stream, setStream] = useState<MediaStream | null>(null)
-  // Mirror of track.enabled — kept in sync so React re-renders when toggled
   const [audioEnabled, setAudioEnabled] = useState(true)
   const [videoEnabled, setVideoEnabled] = useState(true)
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [cameras, setCameras] = useState<MediaDevice[]>([])
   const [mics, setMics] = useState<MediaDevice[]>([])
-  // Refs instead of state: device IDs are only needed when restarting the stream, not for rendering
+  const [switching, setSwitching] = useState(false)
+  const [switchingType, setSwitchingType] = useState<'camera' | 'microphone' | null>(null)
+  const [mediaError, setMediaError] = useState<MediaError | null>(null)
+
   const activeCameraId = useRef<string | undefined>(undefined)
   const activeMicId = useRef<string | undefined>(undefined)
+  // Sync ref so onended callbacks can check without stale closure
+  const switchingRef = useRef(false)
+
+  function attachTrackEndedHandlers(s: MediaStream) {
+    s.getVideoTracks().forEach(t => {
+      t.onended = () => { if (!switchingRef.current) setMediaError({ type: 'camera' }) }
+    })
+    s.getAudioTracks().forEach(t => {
+      t.onended = () => { if (!switchingRef.current) setMediaError({ type: 'microphone' }) }
+    })
+  }
+
+  function detachTrackEndedHandlers(s: MediaStream) {
+    s.getTracks().forEach(t => { t.onended = null })
+  }
 
   useEffect(() => {
-    // cancelled flag prevents state updates if the component unmounts before getUserMedia resolves
     let cancelled = false
 
     async function init() {
       try {
         const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        if (cancelled) { s.getTracks().forEach(t => t.stop()); return }
-        setStream(s)
+        if (cancelled) { s.getTracks().forEach(t => { t.onended = null; t.stop() }); return }
         const vTrack = s.getVideoTracks()[0]
         const aTrack = s.getAudioTracks()[0]
-        // Record which physical devices were selected so selectCamera/selectMic can pin the other device
         if (vTrack) activeCameraId.current = vTrack.getSettings().deviceId
         if (aTrack) activeMicId.current = aTrack.getSettings().deviceId
-        // enumerateDevices only returns labels after permission is granted, so we call it here
+        attachTrackEndedHandlers(s)
+        setStream(s)
         await loadDevices()
       } catch (err: unknown) {
         if (cancelled) return
@@ -64,44 +87,80 @@ export function useLocalMedia(): LocalMedia {
     setMics(devices.filter(d => d.kind === 'audioinput').map(d => ({ deviceId: d.deviceId, label: d.label || d.deviceId })))
   }
 
-  // Mute/unmute by flipping track.enabled — no stream restart, no permission re-prompt
   function toggleAudio() {
     if (!stream) return
     stream.getAudioTracks().forEach(t => { t.enabled = !t.enabled })
     setAudioEnabled(e => !e)
   }
 
+  // t.enabled = false does NOT fire onended — the "Camera lost" badge is NOT triggered
   function toggleVideo() {
     if (!stream) return
     stream.getVideoTracks().forEach(t => { t.enabled = !t.enabled })
     setVideoEnabled(e => !e)
   }
 
-  // Switching devices requires a new getUserMedia call; we keep the active mic pinned so it doesn't change
   async function selectCamera(deviceId: string) {
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId } },
-      audio: activeMicId.current ? { deviceId: { exact: activeMicId.current } } : true,
-    })
-    activeCameraId.current = deviceId
-    // Stop old tracks only after the new stream is ready to avoid a gap
-    stream?.getTracks().forEach(t => t.stop())
-    setStream(newStream)
-    setAudioEnabled(true)
-    setVideoEnabled(true)
+    switchingRef.current = true
+    setSwitching(true)
+    setSwitchingType('camera')
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } },
+        audio: activeMicId.current ? { deviceId: { exact: activeMicId.current } } : true,
+      })
+      if (stream) detachTrackEndedHandlers(stream)
+      stream?.getTracks().forEach(t => t.stop())
+      const vTrack = newStream.getVideoTracks()[0]
+      const aTrack = newStream.getAudioTracks()[0]
+      if (vTrack) activeCameraId.current = vTrack.getSettings().deviceId
+      if (aTrack) activeMicId.current = aTrack.getSettings().deviceId
+      attachTrackEndedHandlers(newStream)
+      setStream(newStream)
+      setMediaError(null)
+      setAudioEnabled(true)
+      setVideoEnabled(true)
+    } finally {
+      switchingRef.current = false
+      setSwitching(false)
+      setSwitchingType(null)
+    }
   }
 
   async function selectMic(deviceId: string) {
-    const newStream = await navigator.mediaDevices.getUserMedia({
-      video: activeCameraId.current ? { deviceId: { exact: activeCameraId.current } } : true,
-      audio: { deviceId: { exact: deviceId } },
-    })
-    activeMicId.current = deviceId
-    stream?.getTracks().forEach(t => t.stop())
-    setStream(newStream)
-    setAudioEnabled(true)
-    setVideoEnabled(true)
+    switchingRef.current = true
+    setSwitching(true)
+    setSwitchingType('microphone')
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: activeCameraId.current ? { deviceId: { exact: activeCameraId.current } } : true,
+        audio: { deviceId: { exact: deviceId } },
+      })
+      if (stream) detachTrackEndedHandlers(stream)
+      stream?.getTracks().forEach(t => t.stop())
+      const vTrack = newStream.getVideoTracks()[0]
+      const aTrack = newStream.getAudioTracks()[0]
+      if (vTrack) activeCameraId.current = vTrack.getSettings().deviceId
+      if (aTrack) activeMicId.current = aTrack.getSettings().deviceId
+      attachTrackEndedHandlers(newStream)
+      setStream(newStream)
+      setMediaError(null)
+      setAudioEnabled(true)
+      setVideoEnabled(true)
+    } finally {
+      switchingRef.current = false
+      setSwitching(false)
+      setSwitchingType(null)
+    }
   }
 
-  return { stream, audioEnabled, toggleAudio, videoEnabled, toggleVideo, permissionDenied, cameras, mics, selectCamera, selectMic }
+  function dismissMediaError() {
+    setMediaError(null)
+  }
+
+  return {
+    stream, audioEnabled, toggleAudio, videoEnabled, toggleVideo,
+    permissionDenied, cameras, mics, selectCamera, selectMic,
+    switching, switchingType, mediaError, dismissMediaError,
+  }
 }
